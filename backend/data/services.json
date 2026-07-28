@@ -1,0 +1,184 @@
+{
+  "currency": "ZAR",
+  "currencySymbol": "R",
+  "note": "Prices are starting prices. Final price is confirmed by the stylist on consultation.",
+  "categories": [
+    {
+      "id": "cutting",
+      "name": "Cutting",
+      "services": [
+        {
+          "id": "kids-cut",
+          "name": "Kids Cut",
+          "description": "A relaxed, quick cut for clients under 12.",
+          "price": 50,
+          "durationMinutes": 30
+        },
+        {
+          "id": "buzz-cut",
+          "name": "Buzz Cut",
+          "description": "A clean all-over clipper cut in one guard length.",
+          "price": 80,
+          "durationMinutes": 20
+        },
+        {
+          "id": "gents-cut",
+          "name": "Gents Cut & Style",
+          "description": "A scissor or clipper cut finished with product and styling.",
+          "price": 120,
+          "durationMinutes": 30
+        },
+        {
+          "id": "fade-lineup",
+          "name": "Fade & Line-Up",
+          "description": "A blended skin, taper or drop fade with a sharp razor line-up.",
+          "price": 150,
+          "durationMinutes": 40
+        },
+        {
+          "id": "ladies-cut",
+          "name": "Ladies Precision Cut",
+          "description": "A consultation-led cut shaped to your hair texture, with a blow-dry.",
+          "price": 280,
+          "durationMinutes": 60
+        },
+        {
+          "id": "full-restyle",
+          "name": "Full Restyle",
+          "description": "A bold change of direction. Shape, length and movement redesigned.",
+          "price": 450,
+          "durationMinutes": 90
+        }
+      ]
+    },
+    {
+      "id": "braiding",
+      "name": "Braiding & Protective Styles",
+      "services": [
+        {
+          "id": "cornrows",
+          "name": "Cornrows",
+          "description": "Straight-back cornrows. Add-on hair charged separately.",
+          "price": 250,
+          "durationMinutes": 90
+        },
+        {
+          "id": "two-strand-twists",
+          "name": "Two-Strand Twists",
+          "description": "Soft, defined twists that can be worn out or as a set.",
+          "price": 400,
+          "durationMinutes": 120
+        },
+        {
+          "id": "box-braids",
+          "name": "Box Braids",
+          "description": "Classic box braids, sized to your preference.",
+          "price": 650,
+          "durationMinutes": 240
+        },
+        {
+          "id": "knotless-braids",
+          "name": "Knotless Braids",
+          "description": "Feed-in knotless braids for less tension on the scalp.",
+          "price": 850,
+          "durationMinutes": 300
+        }
+      ]
+    },
+    {
+      "id": "colour",
+      "name": "Colour",
+      "services": [
+        {
+          "id": "root-touch-up",
+          "name": "Root Touch-Up",
+          "description": "Regrowth colour to match your existing shade.",
+          "price": 450,
+          "durationMinutes": 90
+        },
+        {
+          "id": "full-colour",
+          "name": "Full Colour",
+          "description": "Edge-to-edge permanent colour for rich, even coverage.",
+          "price": 750,
+          "durationMinutes": 120
+        },
+        {
+          "id": "highlights",
+          "name": "Foil Highlights",
+          "description": "Woven foils for brightness and contrast around the face.",
+          "price": 950,
+          "durationMinutes": 150
+        },
+        {
+          "id": "balayage",
+          "name": "Balayage",
+          "description": "Hand-painted, sun-kissed dimension with a soft grow-out.",
+          "price": 1200,
+          "durationMinutes": 180
+        }
+      ]
+    },
+    {
+      "id": "styling",
+      "name": "Styling",
+      "services": [
+        {
+          "id": "blow-dry",
+          "name": "Blow-Dry & Style",
+          "description": "Smooth, bouncy or textured, styled exactly how you like it.",
+          "price": 180,
+          "durationMinutes": 45
+        },
+        {
+          "id": "silk-press",
+          "name": "Silk Press",
+          "description": "A wash, blow-out and flat-iron finish with movement and shine.",
+          "price": 350,
+          "durationMinutes": 75
+        },
+        {
+          "id": "occasion-styling",
+          "name": "Occasion Styling",
+          "description": "Weddings, matric dances and shoots. Includes a consultation.",
+          "price": 500,
+          "durationMinutes": 60
+        }
+      ]
+    },
+    {
+      "id": "treatments",
+      "name": "Treatments",
+      "services": [
+        {
+          "id": "deep-conditioning",
+          "name": "Deep Conditioning",
+          "description": "An intensive moisture treatment for dry or brittle hair.",
+          "price": 150,
+          "durationMinutes": 30
+        },
+        {
+          "id": "scalp-treatment",
+          "name": "Scalp Treatment",
+          "description": "A clarifying and soothing treatment for flaky or itchy scalps.",
+          "price": 200,
+          "durationMinutes": 30
+        },
+        {
+          "id": "bond-repair",
+          "name": "Bond Repair",
+          "description": "Bond-building repair for stressed or over-processed hair.",
+          "price": 320,
+          "durationMinutes": 45
+        },
+        {
+          "id": "keratin-smoothing",
+          "name": "Keratin Smoothing",
+          "description": "A smoothing treatment that cuts frizz and styling time for months.",
+          "price": 1500,
+          "durationMinutes": 180
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,412 @@
+/*
+ * Custom styles for both pages.
+ *
+ * Tailwind utilities handle layout and spacing in the markup. This file owns
+ * the things utilities express poorly: repeated components, keyframes, the
+ * layered hero background, and state-driven styling keyed off data attributes.
+ *
+ * Colours come from the `@theme` block in each HTML file, which Tailwind emits
+ * as custom properties on :root. Every reference below carries a literal
+ * fallback, so the page still looks right if Tailwind is slow to load or fails
+ * to load at all.
+ */
+
+/* ---------------------------------------------------------------- base ---- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Anchor jumps must clear the fixed header or headings land underneath it. */
+:target {
+  scroll-margin-top: 6rem;
+}
+
+/*
+ * Visible only when focused. Lets keyboard users jump past the navigation
+ * instead of tabbing through it on every page load.
+ */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 100;
+  padding: 0.75rem 1.25rem;
+  background-color: var(--color-espresso, #2b1d16);
+  color: var(--color-cream, #faf6ef);
+  border-radius: 0 0 0.5rem 0;
+}
+
+.skip-link:focus {
+  left: 0;
+  top: 0;
+}
+
+/* -------------------------------------------------------------- header ---- */
+
+/*
+ * Transparent over the dark hero, solid once scrolled. site.js only flips the
+ * data attribute; the appearance of each state is defined here.
+ */
+.site-header {
+  color: var(--color-cream, #faf6ef);
+}
+
+.site-header[data-scrolled='true'] {
+  background-color: rgba(250, 246, 239, 0.92);
+  backdrop-filter: blur(10px);
+  color: var(--color-espresso, #2b1d16);
+  border-bottom: 1px solid var(--color-hairline, #e4dacb);
+}
+
+.nav-link {
+  color: currentColor;
+  opacity: 0.75;
+  transition: opacity 150ms ease;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  opacity: 1;
+}
+
+.mobile-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 1.5rem 1.5rem;
+  background-color: rgba(250, 246, 239, 0.97);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--color-hairline, #e4dacb);
+}
+
+.mobile-nav-link {
+  padding: 0.75rem 0;
+  color: var(--color-espresso, #2b1d16);
+  border-bottom: 1px solid var(--color-hairline, #e4dacb);
+}
+
+.mobile-nav-link:last-child {
+  border-bottom: none;
+}
+
+/* ------------------------------------------------------------- buttons ---- */
+
+.btn-primary,
+.btn-desk,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  transition:
+    transform 150ms ease,
+    filter 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.btn-primary {
+  padding: 0.9rem 1.75rem;
+  background-color: var(--color-tan, #b08968);
+  color: var(--color-espresso, #2b1d16);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.btn-desk {
+  padding: 0.6rem 1.25rem;
+  background-color: var(--color-espresso, #2b1d16);
+  color: var(--color-cream, #faf6ef);
+}
+
+/* On the transparent header the dark pill would disappear into the hero. */
+.site-header[data-scrolled='false'] .btn-desk {
+  background-color: var(--color-tan, #b08968);
+  color: var(--color-espresso, #2b1d16);
+}
+
+.btn-desk:hover {
+  filter: brightness(1.1);
+}
+
+.btn-ghost {
+  padding: 0.9rem 1.75rem;
+  border: 1px solid rgba(250, 246, 239, 0.3);
+  color: var(--color-cream, #faf6ef);
+}
+
+.btn-ghost:hover {
+  background-color: rgba(250, 246, 239, 0.1);
+}
+
+/* ---------------------------------------------------------------- hero ---- */
+
+/*
+ * The hero is deliberately image-free by default so the site looks complete
+ * with zero assets. To use a photograph, save it as frontend/images/hero.jpg
+ * and uncomment the --hero-photo line below. The ::after scrim keeps the
+ * headline readable over whatever image is used.
+ */
+.hero {
+  /* --hero-photo: url('images/hero.jpg'); */
+  background-color: #241811;
+  background-image:
+    radial-gradient(1200px 620px at 18% 22%, rgba(176, 137, 104, 0.3), transparent 62%),
+    radial-gradient(900px 520px at 88% 8%, rgba(219, 184, 140, 0.2), transparent 58%),
+    linear-gradient(180deg, #3b2820 0%, #2b1d16 55%, #201510 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--hero-photo, none);
+  background-size: cover;
+  background-position: center;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(20, 12, 8, 0.55) 0%,
+    rgba(20, 12, 8, 0.3) 42%,
+    rgba(20, 12, 8, 0.85) 100%
+  );
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.875rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(250, 246, 239, 0.25);
+  color: rgba(250, 246, 239, 0.85);
+}
+
+/* ------------------------------------------------------------ sections ---- */
+
+.section-eyebrow,
+.visit-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--color-tan, #b08968);
+}
+
+.step-number {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--color-tan, #b08968);
+}
+
+/* ---------------------------------------------------------------- menu ---- */
+
+.menu-category {
+  margin-top: 4rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--color-tan, #b08968);
+}
+
+.menu-list {
+  margin-top: 1.5rem;
+}
+
+/*
+ * Hairline separators between rows, but not after the last one -- a trailing
+ * rule reads as an unfinished list.
+ */
+.menu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2.5rem;
+  padding: 1.5rem 0;
+  border-bottom: 1px solid var(--color-hairline, #e4dacb);
+}
+
+.menu-item:last-child {
+  border-bottom: none;
+}
+
+.menu-item-body {
+  max-width: 34rem;
+}
+
+.menu-item-name {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.4rem;
+  color: var(--color-espresso, #2b1d16);
+}
+
+.menu-item-desc {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--color-muted, #7a6656);
+}
+
+.menu-item-meta {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.menu-price {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.5rem;
+  color: var(--color-espresso, #2b1d16);
+}
+
+.menu-duration {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--color-muted, #7a6656);
+}
+
+@media (max-width: 480px) {
+  .menu-item {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .menu-item-meta {
+    text-align: left;
+  }
+}
+
+/* -------------------------------------------------------- floating cta ---- */
+
+/*
+ * Sits out of the way until the hero leaves the viewport, so it never competes
+ * with the hero's own button. Kept off-pointer while hidden so it cannot be
+ * clicked or tabbed to while invisible.
+ */
+.floating-cta {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.95rem 1.6rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  background-color: var(--color-espresso, #2b1d16);
+  color: var(--color-cream, #faf6ef);
+  box-shadow: 0 12px 30px rgba(20, 12, 8, 0.35);
+  transition:
+    opacity 250ms ease,
+    transform 250ms ease;
+}
+
+.floating-cta[data-visible='false'] {
+  opacity: 0;
+  transform: translateY(0.75rem);
+  pointer-events: none;
+}
+
+.floating-cta[data-visible='true'] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.floating-cta:hover {
+  filter: brightness(1.15);
+}
+
+/* --------------------------------------------------------- call screen ---- */
+
+/* Expanding ring that radiates out from the call button. */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
+/* Gentle breathing used while the connection is being negotiated. */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * The ring is a pseudo-element so it never affects layout or intercepts
+ * clicks -- the button stays exactly one accessible hit target.
+ */
+.call-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  background-color: currentColor;
+  opacity: 0;
+}
+
+/* Connecting: no ring yet, just a slow fade to show work in progress. */
+.call-button[data-state='connecting'] {
+  animation: soft-pulse 1.4s ease-in-out infinite;
+}
+
+/* Listening: calm, steady ring. The receptionist is waiting on the customer. */
+.call-button[data-state='listening']::before {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+/* Speaking: faster ring, so it is obvious at a glance who holds the turn. */
+.call-button[data-state='speaking']::before {
+  animation: pulse-ring 1.1s ease-out infinite;
+}
+
+/* The audio sink is functional, not visual. */
+#ai-audio {
+  display: none;
+}
+
+/* ------------------------------------------------------ reduced motion ---- */
+
+/*
+ * Respect users who have asked their OS to reduce motion. Vestibular disorders
+ * are aggravated by looping animation and by smooth scroll jumps, and every
+ * state here is already conveyed by text.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .call-button,
+  .call-button::before,
+  .floating-cta,
+  .btn-primary,
+  .btn-desk,
+  .btn-ghost {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "name": "Bella Hair Studio - Booking to Email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bella-booking",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Booking Received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-160, 0],
+      "webhookId": "a1b2c3d4-0001-4000-8000-000000000001",
+      "notes": "Receives one confirmed booking from the Bella Hair Studio backend. Responds immediately so the caller is never left waiting on the email."
+    },
+    {
+      "parameters": {
+        "fromEmail": "studio@example.com",
+        "toEmail": "studio@example.com",
+        "subject": "=New booking {{ $json.body.reference }} - {{ $json.body.service }}",
+        "emailFormat": "both",
+        "text": "=New booking: {{ $json.body.reference }}\n\nName:    {{ $json.body.customerName }}\nPhone:   {{ $json.body.phone }}\nService: {{ $json.body.service }}\nDate:    {{ $json.body.date }}\nTime:    {{ $json.body.time }}\nPrice:   {{ $json.body.quotedPrice || 'not quoted' }}\nNotes:   {{ $json.body.notes || 'none' }}\n\nBooked at {{ $json.body.createdAt }} by the AI front desk.",
+        "html": "=<div style=\"font-family:Helvetica,Arial,sans-serif;max-width:560px;color:#2b1d16\">\n  <p style=\"font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#b08968;margin:0\">Bella Hair Studio</p>\n  <h2 style=\"margin:8px 0 4px;font-size:22px\">New booking</h2>\n  <p style=\"margin:0 0 20px;font-size:15px;color:#7a6656\">Reference <strong style=\"color:#2b1d16\">{{ $json.body.reference }}</strong></p>\n  <table cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;border-collapse:collapse;font-size:15px\">\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656;width:120px\">Name</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\"><strong>{{ $json.body.customerName }}</strong></td></tr>\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656\">Phone</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\">{{ $json.body.phone }}</td></tr>\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656\">Service</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\">{{ $json.body.service }}</td></tr>\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656\">Date</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\">{{ $json.body.date }}</td></tr>\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656\">Time</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\">{{ $json.body.time }}</td></tr>\n    <tr><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb;color:#7a6656\">Price from</td><td style=\"padding:10px 0;border-bottom:1px solid #e4dacb\">{{ $json.body.quotedPrice || 'not quoted' }}</td></tr>\n    <tr><td style=\"padding:10px 0;color:#7a6656\">Notes</td><td style=\"padding:10px 0\">{{ $json.body.notes || 'none' }}</td></tr>\n  </table>\n  <p style=\"margin-top:24px;font-size:12px;color:#7a6656\">Taken by the AI front desk at {{ $json.body.createdAt }}.</p>\n</div>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Email the Studio",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [80, 0],
+      "credentials": {
+        "smtp": {
+          "id": "p8xYH100GywAbEKL",
+          "name": "SMTP account"
+        }
+      },
+      "notes": "Bound to the SMTP credential by id, so an import comes up ready to activate. The id is specific to one n8n instance: on any other instance, re-select the credential in this node. Gmail needs a 16-character App Password rather than the account password, and the From address must be that same account."
+    }
+  ],
+  "connections": {
+    "Booking Received": {
+      "main": [
+        [
+          {
+            "node": "Email the Studio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

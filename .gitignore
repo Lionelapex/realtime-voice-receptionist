@@ -1,0 +1,19 @@
+node_modules/
+
+# Secrets. Never commit these.
+.env
+.env.local
+.env.*.local
+
+# Captured bookings contain customer names and phone numbers.
+backend/data/bookings.json
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,19 @@
+{
+  "name": "ai-receptionist-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend for the Bella Hair Studio AI receptionist voice demo.",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
