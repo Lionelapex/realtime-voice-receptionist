@@ -149,6 +149,6 @@ access code before sharing the link widely.
 Booking storage is a JSON file with read-modify-write, which is fine for one
 process and wrong for several. There is no availability checking, so the
 receptionist accepts any time the caller asks for. Nothing authenticates the
-booking endpoint. All three are deliberate — this demonstrates the voice
+booking endpoint. All three are deliberate ,this demonstrates the voice
 pipeline, and a real deployment would add a database, a calendar integration and
 auth.
