@@ -1,16 +1,32 @@
 /**
- * HTTP surface for Realtime session creation.
- *
- * Kept deliberately thin: routing and status codes only. All OpenAI knowledge
- * lives in the service layer, so this file stays readable and the service can
- * be reused later (for example by the Phase 2 booking webhook) without dragging
- * Express along with it.
+ * HTTP surface for Realtime session creation and locale discovery.
  */
 
 import { Router } from 'express';
 import { createEphemeralSession } from '../services/realtimeSessionService.js';
+import {
+  localeDisplayName,
+  resolveReceptionistLocale,
+  SUPPORTED_LOCALES,
+} from '../services/locale.js';
 
 const router = Router();
+
+/**
+ * GET /api/locale
+ *
+ * Lets the call UI know which language the receptionist is configured for
+ * (RECEPTIONIST_LOCALE) before a session is minted.
+ */
+router.get('/locale', (req, res) => {
+  const locale = resolveReceptionistLocale();
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    locale,
+    localeName: localeDisplayName(locale),
+    supported: SUPPORTED_LOCALES,
+  });
+});
 
 /**
  * POST /api/session

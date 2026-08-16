@@ -21,6 +21,9 @@
 
 const SESSION_ENDPOINT = '/api/session';
 const BOOKINGS_ENDPOINT = '/api/bookings';
+const AVAILABILITY_ENDPOINT = '/api/availability';
+const RESCHEDULE_ENDPOINT = '/api/bookings/reschedule';
+const CANCEL_ENDPOINT = '/api/bookings/cancel';
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 
 // Nexofy T-03: greeting must start 1.5–2s after the call connects, not instantly.
@@ -274,7 +277,28 @@ export function createRealtimeCall({
     try {
       const args = JSON.parse(item.arguments || '{}');
 
-      if (name === 'save_booking') {
+      if (name === 'check_availability') {
+        const response = await fetch(AVAILABILITY_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result = body.ok
+          ? {
+              success: true,
+              timezone: body.timezone,
+              startDate: body.startDate,
+              endDate: body.endDate,
+              totalSlots: body.totalSlots,
+              days: body.days,
+              unavailableDays: body.unavailableDays || [],
+            }
+          : {
+              success: false,
+              error: body.error || `Availability service returned HTTP ${response.status}`,
+            };
+      } else if (name === 'save_booking') {
         const response = await fetch(BOOKINGS_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -284,14 +308,70 @@ export function createRealtimeCall({
         const body = await response.json().catch(() => ({}));
 
         if (response.ok && body.ok) {
-          result = { success: true, reference: body.reference };
+          result = {
+            success: true,
+            reference: body.reference,
+            confirmationEmail: body.confirmationEmail || args.email || null,
+            message: body.confirmationEmail || args.email
+              ? 'Booking confirmed on the calendar. A confirmation email is being sent.'
+              : 'Booking confirmed on the calendar.',
+          };
           onBooking({ ...args, reference: body.reference });
         } else {
           result = {
             success: false,
-            error: body.error || `Booking service returned HTTP ${response.status}`,
+            reference: body.reference,
+            reason: body.reason,
+            nearbyTimes: body.nearbyTimes,
+            error:
+              body.error ||
+              body.calcom?.error ||
+              `Booking service returned HTTP ${response.status}`,
           };
         }
+      } else if (name === 'reschedule_booking') {
+        const response = await fetch(RESCHEDULE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result =
+          response.ok && body.ok
+            ? {
+                success: true,
+                reference: body.reference,
+                date: body.date,
+                time: body.time,
+              }
+            : {
+                success: false,
+                reference: body.reference,
+                reason: body.reason,
+                nearbyTimes: body.nearbyTimes,
+                error:
+                  body.error ||
+                  body.calcom?.error ||
+                  `Reschedule returned HTTP ${response.status}`,
+              };
+      } else if (name === 'cancel_booking') {
+        const response = await fetch(CANCEL_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result =
+          response.ok && body.ok
+            ? { success: true, reference: body.reference }
+            : {
+                success: false,
+                reference: body.reference,
+                error:
+                  body.error ||
+                  body.calcom?.error ||
+                  `Cancel returned HTTP ${response.status}`,
+              };
       } else {
         result = { success: false, error: `Unknown tool: ${name}` };
       }
