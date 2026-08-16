@@ -10,8 +10,10 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "build:frontend": "npm install --prefix ../frontend && npm run build --prefix ../frontend"
   },
+
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1"

@@ -24,7 +24,7 @@ mid-sentence and be understood.
 ```
 Browser                    Backend                  External
 ───────                    ───────                  ────────
-call.html                  POST /api/session   ──►  OpenAI (mint token)
+/call (React)              POST /api/session   ──►  OpenAI (mint token)
   │                          returns ephemeral token
   ├── WebRTC audio  ────────────────────────────►  OpenAI Realtime
   │     (direct, never through the backend)
@@ -50,20 +50,25 @@ the website does not show, because there is only one place a price exists.
 
 ## Tech stack
 
-Deliberately minimal — two runtime dependencies, no build step, no framework.
+Kept intentionally lean: Express for the API, React for the UI, and the same
+WebRTC voice engine that was written before the React port.
 
 | Layer | Choice |
 |---|---|
 | Backend | Node.js 20+, Express 5 |
-| Frontend | HTML, Tailwind via CDN, vanilla ES modules |
+| Frontend | React 19, Vite, React Router, Tailwind CSS v4 |
 | Voice | OpenAI Realtime API over WebRTC |
 | Automation | n8n webhook to SMTP email |
+
+The WebRTC lifecycle still lives in a DOM-free module (`src/lib/realtime.js`).
+React only wraps it in a hook and renders state — so the voice path did not have
+to be rewritten to change the UI framework.
 
 ## Project structure
 
 ```
 backend/
-  server.js                      Express app: static files, routes, errors
+  server.js                      Express app: API + serves the React build
   routes/                        HTTP layer, one file per resource
   services/
     realtimeSessionService.js    Mints ephemeral tokens, defines the tool schema
@@ -73,11 +78,11 @@ backend/
   data/services.json             The salon menu: the single source of prices
   scripts/test-smtp.js           Checks SMTP credentials before trusting n8n
 frontend/
-  index.html                     Marketing site
-  call.html                      The voice interface
-  realtime.js                    WebRTC lifecycle, microphone, tool calls
-  app.js                         Call UI state
-  site.js                        Marketing site interactivity, renders the menu
+  src/
+    pages/                       HomePage and CallPage
+    components/                  Header, service menu
+    hooks/useRealtimeCall.js     React wrapper around the voice controller
+    lib/realtime.js              WebRTC lifecycle, microphone, tool calls
 n8n/
   booking-to-email.workflow.json Importable workflow: webhook to email
 ```
@@ -88,18 +93,32 @@ Requires Node.js 20 or newer and an OpenAI account with credit. Realtime audio
 is billed per minute, so set a spending limit before you start.
 
 ```bash
+# Terminal 1 — API
 cd backend
 npm install
 cp .env.example .env      # then add your OpenAI API key
 npm run dev
+
+# Terminal 2 — React UI (Vite proxies /api to :3000)
+cd frontend
+npm install
+npm run dev
 ```
 
-Open `http://localhost:3000` for the site, or go straight to
-`http://localhost:3000/call.html` to talk to it.
+Open the Vite URL (usually `http://localhost:5173`). For a production-shaped
+local run, build the frontend and let Express serve it:
 
-Serve it rather than opening the HTML from disk. `getUserMedia` only exists in a
-secure context, so a `file://` URL leaves the microphone unavailable before the
-permission prompt ever appears.
+```bash
+cd backend
+npm run build:frontend
+npm start
+```
+
+Then open `http://localhost:3000` for the site, or `http://localhost:3000/call`
+for the voice desk.
+
+`getUserMedia` only exists in a secure context, so always use localhost or HTTPS
+rather than opening built files as `file://`.
 
 ### Environment variables
 
@@ -128,10 +147,20 @@ you put them into n8n, which separates a bad password from a bad workflow.
 
 ## Deploying
 
-Any host that runs a Node process works; this is a single service with no build
-step. Render's free tier is the shortest path — connect the repository, set the
-root directory to `backend`, use `npm install` and `npm start`, and add the
-environment variables. HTTPS comes free and is required for microphone access.
+Any host that runs a Node process works. Render's free tier is the shortest
+path. With **Root Directory** set to `backend`:
+
+| Setting | Value |
+|---|---|
+| Build Command | `npm run build:frontend && npm install` |
+| Start Command | `npm start` |
+
+That builds the React app into `frontend/dist`, then starts Express, which
+serves the build and the API from one origin. Add the environment variables in
+the dashboard. HTTPS comes free and is required for microphone access.
+
+If you already deployed before the React port, update the Build Command — a
+plain `npm install` no longer produces the UI.
 
 Two things to know before making it public.
 

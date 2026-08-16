@@ -113,11 +113,13 @@ function buildSessionConfig() {
         // recalling a phone number, and a plain silence timer interrupts them.
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'auto',
-          // Let the model reply on its own once the customer stops talking, and
-          // let the customer cut the model off mid-sentence. Together these are
-          // what make the exchange feel like a real phone call.
+          // "low" waits for a more complete utterance before seizing the turn.
+          // That helps slow speakers who pause mid-sentence (T-02) and reduces
+          // false replies to brief background noise bursts (T-01). Trade-off:
+          // replies feel a touch less snappy after short answers like "yes".
+          eagerness: 'low',
           create_response: true,
+          // Callers can still cut the agent off mid-sentence when they mean to.
           interrupt_response: true,
         },
       },
