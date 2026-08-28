@@ -1,27 +1,29 @@
 /**
- * Booking validation, storage and downstream notification.
+ * Booking validation, storage and Cal.com diary operations.
  *
- * Storage is a JSON file rather than a database: the MVP needs durability and
- * an audit trail, not queries, and a file keeps the dependency list at two.
- *
- * The ordering here is deliberate. A booking is written to disk FIRST and only
- * then pushed to n8n. If the webhook is down, misconfigured or slow, the
- * customer's booking still exists and the call still completes successfully.
- * Treating the webhook as best-effort rather than as part of the critical path
- * is what stops an automation outage from becoming a lost customer.
+ * Local JSON is the demo audit trail. Cal.com is the live diary for open slots,
+ * creates, reschedules and cancellations.
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  cancelCalcomBooking,
+  createCalcomBooking,
+  getAvailableSlots,
+  getCalcomConfigStatus,
+  isSlotOpen,
+  normalizeDateYmd,
+  normalizeTimeHm,
+  rescheduleCalcomBooking,
+  toE164Phone,
+} from './calcomService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '..', 'data');
 const BOOKINGS_PATH = path.join(DATA_DIR, 'bookings.json');
 
-const WEBHOOK_TIMEOUT_MS = 5000;
-
-/** Fields the receptionist must collect before a booking is accepted. */
 const REQUIRED_FIELDS = ['customerName', 'phone', 'service', 'date', 'time'];
 
 export class BookingError extends Error {
@@ -32,14 +34,6 @@ export class BookingError extends Error {
   }
 }
 
-/**
- * Check and normalise incoming booking details.
- *
- * These arrive from the model via the browser, so they are untrusted input and
- * are validated here regardless of what the model was instructed to send.
- * Lengths are capped because a transcription glitch could otherwise write an
- * enormous string straight to disk.
- */
 function validateBooking(input) {
   if (!input || typeof input !== 'object') {
     throw new BookingError('Booking details are missing.');
@@ -55,22 +49,29 @@ function validateBooking(input) {
     booking[field] = value.trim().slice(0, 200);
   }
 
-  // Optional extras the model may supply.
+  const date = normalizeDateYmd(booking.date);
+  const time = normalizeTimeHm(booking.time);
+  if (!date || !time) {
+    throw new BookingError(
+      'date must be YYYY-MM-DD and time must be HH:mm (South Africa time).',
+    );
+  }
+  booking.date = date;
+  booking.time = time;
+
   if (typeof input.notes === 'string') {
     booking.notes = input.notes.trim().slice(0, 500);
   }
   if (typeof input.quotedPrice === 'string' || typeof input.quotedPrice === 'number') {
     booking.quotedPrice = String(input.quotedPrice).slice(0, 50);
   }
+  if (typeof input.email === 'string' && input.email.trim().includes('@')) {
+    booking.email = input.email.trim().toLowerCase().slice(0, 200);
+  }
 
   return booking;
 }
 
-/**
- * Human-friendly reference the receptionist can read aloud.
- * Short and unambiguous over the phone: no vowels, so it cannot spell anything,
- * and no characters that sound alike.
- */
 function createReference() {
   const alphabet = '3479CDFHJKLMNPRTWXY';
   let suffix = '';
@@ -84,80 +85,370 @@ async function readBookings() {
   try {
     return JSON.parse(await fs.readFile(BOOKINGS_PATH, 'utf8'));
   } catch (error) {
-    // First run: the file does not exist yet.
     if (error.code === 'ENOENT') return [];
     throw error;
   }
 }
 
-/**
- * Send the booking to n8n, if a webhook is configured.
- *
- * Never throws. A failure here is logged and reported back to the caller as a
- * flag, because the booking itself has already been stored successfully.
- */
-async function notifyWebhook(booking) {
-  const url = process.env.N8N_WEBHOOK_URL;
-  if (!url) return { attempted: false, delivered: false };
+async function writeBookings(bookings) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(BOOKINGS_PATH, JSON.stringify(bookings, null, 2), 'utf8');
+}
 
-  try {
-    // Without a timeout a hanging webhook would stall the caller, and the
-    // customer would be left in silence waiting for the receptionist to reply.
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(booking),
-      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-    });
+function phonesMatch(a, b) {
+  const left = toE164Phone(a);
+  const right = toE164Phone(b);
+  if (left && right) return left === right;
+  const digits = (value) => String(value || '').replace(/\D/g, '');
+  const da = digits(a);
+  const db = digits(b);
+  if (!da || !db) return false;
+  return da === db || da.endsWith(db) || db.endsWith(da);
+}
 
-    if (!response.ok) {
-      // n8n explains refusals in the body (inactive workflow, unknown path), so
-      // log a slice of it: the status alone is not enough to tell them apart.
-      const detail = await response.text().catch(() => '');
-      console.error(
-        `[booking] webhook responded ${response.status} ${detail.slice(0, 300)}`.trim(),
-      );
-      return { attempted: true, delivered: false };
-    }
+function normalizePersonName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-    return { attempted: true, delivered: true };
-  } catch (error) {
-    console.error('[booking] webhook failed:', error.message);
-    return { attempted: true, delivered: false };
-  }
+function namesMatch(a, b) {
+  const left = normalizePersonName(a);
+  const right = normalizePersonName(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  // Allow "Lionel" matching "Lionel John" and the reverse.
+  return left.includes(right) || right.includes(left);
 }
 
 /**
- * Validate, persist and forward a booking.
- *
- * @returns {Promise<{reference: string, booking: object, webhook: object}>}
+ * Require phone + name identity checks before changing or cancelling.
+ * Reference is optional and only narrows the search when provided.
+ */
+function requireIdentity(input) {
+  const phone = typeof input.phone === 'string' ? input.phone.trim() : '';
+  const customerName =
+    typeof input.customerName === 'string' ? input.customerName.trim() : '';
+
+  if (!phone) {
+    throw new BookingError('Phone number is required to find and verify the booking.', 400);
+  }
+  if (!customerName) {
+    throw new BookingError('Customer name is required to verify the booking.', 400);
+  }
+
+  return {
+    phone,
+    customerName,
+    reference: typeof input.reference === 'string' ? input.reference.trim() : '',
+  };
+}
+
+/**
+ * Find the newest active local booking by optional reference and required phone,
+ * then verify the spoken name matches.
+ */
+function findVerifiedBooking(bookings, { reference, phone, customerName }) {
+  const existing = findActiveBooking(bookings, { reference, phone });
+
+  if (!namesMatch(existing.customerName, customerName)) {
+    throw new BookingError(
+      'The name does not match the booking on file. Please confirm the full name used when booking.',
+      403,
+    );
+  }
+
+  if (reference) {
+    const ref = reference.trim().toUpperCase();
+    if (String(existing.reference).toUpperCase() !== ref) {
+      // Reference was wrong but phone+name matched a booking — still refuse if
+      // they supplied a different reference that belongs to someone else.
+      const other = bookings.find(
+        (row) =>
+          row &&
+          row.status !== 'cancelled' &&
+          String(row.reference).toUpperCase() === ref,
+      );
+      if (other && !phonesMatch(other.phone, phone)) {
+        throw new BookingError(
+          'That reference does not match this caller. Please check the reference or continue with name and phone only.',
+          403,
+        );
+      }
+    }
+  }
+
+  return existing;
+}
+
+/**
+ * Find the newest active local booking by reference and/or phone.
+ */
+function findActiveBooking(bookings, { reference, phone }) {
+  const ref = typeof reference === 'string' ? reference.trim().toUpperCase() : '';
+  const phoneFilter = typeof phone === 'string' ? phone.trim() : '';
+
+  const candidates = [...bookings]
+    .reverse()
+    .filter((row) => row && row.status !== 'cancelled');
+
+  if (ref) {
+    const byRef = candidates.find((row) => String(row.reference).toUpperCase() === ref);
+    if (byRef) {
+      if (phoneFilter && !phonesMatch(byRef.phone, phoneFilter)) {
+        throw new BookingError(
+          'That reference does not match the phone number given.',
+          404,
+        );
+      }
+      return byRef;
+    }
+    // Fall through to phone lookup when reference is unknown / mistyped.
+  }
+
+  if (phoneFilter) {
+    const byPhone = candidates.find((row) => phonesMatch(row.phone, phoneFilter));
+    if (byPhone) return byPhone;
+  }
+
+  throw new BookingError(
+    'No active booking found for that phone number. Ask them to confirm the number used when booking.',
+    404,
+  );
+}
+
+/** Open slots from Cal.com for the voice agent. */
+export async function checkAvailability(input = {}) {
+  const result = await getAvailableSlots({
+    date: input.date,
+    endDate: input.endDate,
+  });
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error || 'Could not load availability from the calendar.',
+    };
+  }
+
+  // Keep the tool payload small enough to speak from.
+  const days = (result.days || []).map((day) => ({
+    date: day.date,
+    times: day.times.slice(0, 10),
+    moreTimes: Math.max(0, day.times.length - 10),
+  }));
+
+  const unavailableDays = (result.unavailableDays || []).map((day) => ({
+    date: day.date,
+    weekday: day.weekday,
+    reason: day.reason,
+    message: day.message,
+  }));
+
+  return {
+    ok: true,
+    timezone: result.timezone,
+    startDate: result.startDate,
+    endDate: result.endDate,
+    totalSlots: result.totalSlots,
+    days,
+    unavailableDays,
+  };
+}
+
+/**
+ * Validate, persist and create the Cal.com calendar event.
  */
 export async function createBooking(input) {
   const details = validateBooking(input);
+  const { configured: calcomConfigured } = getCalcomConfigStatus();
+
+  if (calcomConfigured) {
+    const slot = await isSlotOpen(details.date, details.time);
+    if (slot.ok && !slot.available) {
+      return {
+        ok: false,
+        reference: null,
+        booking: null,
+        calcom: { attempted: false, delivered: false },
+        reason: slot.reason,
+        error:
+          slot.message ||
+          `That time is not available on ${details.date}. Open times include: ${(slot.nearbyTimes || []).join(', ') || 'none listed'}.`,
+        nearbyTimes: slot.nearbyTimes,
+      };
+    }
+  }
 
   const booking = {
     reference: createReference(),
     createdAt: new Date().toISOString(),
+    status: 'confirmed',
     ...details,
   };
 
-  await fs.mkdir(DATA_DIR, { recursive: true });
-
   const bookings = await readBookings();
   bookings.push(booking);
-
-  // Read-modify-write is not safe against simultaneous writers. Acceptable for
-  // a single-process demo; a real deployment would use a database instead.
-  await fs.writeFile(BOOKINGS_PATH, JSON.stringify(bookings, null, 2), 'utf8');
+  await writeBookings(bookings);
 
   console.log(`[booking] stored ${booking.reference} for ${booking.customerName}`);
 
-  const webhook = await notifyWebhook(booking);
+  const calcom = await createCalcomBooking(booking);
 
-  return { reference: booking.reference, booking, webhook };
+  if (calcom.delivered && (calcom.uid || calcom.id)) {
+    booking.calcomUid = calcom.uid;
+    booking.calcomId = calcom.id;
+    const latest = await readBookings();
+    const idx = latest.findIndex((row) => row.reference === booking.reference);
+    if (idx >= 0) {
+      latest[idx] = { ...latest[idx], calcomUid: calcom.uid, calcomId: calcom.id };
+      await writeBookings(latest);
+    }
+  } else if (calcom.error) {
+    console.warn(`[booking] Cal.com not delivered for ${booking.reference}: ${calcom.error}`);
+  }
+
+  const ok = !calcomConfigured || calcom.delivered === true;
+
+  return {
+    reference: booking.reference,
+    booking,
+    calcom,
+    ok,
+    confirmationEmail: ok ? booking.email : undefined,
+    error: ok
+      ? undefined
+      : calcom.error || 'The calendar could not accept this appointment time.',
+  };
 }
 
-/** All stored bookings, newest first. Useful for demoing what was captured. */
+/**
+ * Change an existing appointment to a new Cal.com slot.
+ */
+export async function rescheduleBooking(input = {}) {
+  const date = normalizeDateYmd(input.date);
+  const time = normalizeTimeHm(input.time);
+  if (!date || !time) {
+    throw new BookingError(
+      'New date must be YYYY-MM-DD and time must be HH:mm (South Africa time).',
+    );
+  }
+
+  const identity = requireIdentity(input);
+  const bookings = await readBookings();
+  const existing = findVerifiedBooking(bookings, identity);
+
+  if (!existing.calcomUid) {
+    throw new BookingError(
+      'That booking is not linked to the calendar, so it cannot be rescheduled automatically.',
+      409,
+    );
+  }
+
+  const { configured: calcomConfigured } = getCalcomConfigStatus();
+  if (calcomConfigured) {
+    const slot = await isSlotOpen(date, time);
+    if (slot.ok && !slot.available) {
+      return {
+        ok: false,
+        reference: existing.reference,
+        reason: slot.reason,
+        error:
+          slot.message ||
+          `That new time is not available on ${date}. Open times include: ${(slot.nearbyTimes || []).join(', ') || 'none listed'}.`,
+        nearbyTimes: slot.nearbyTimes,
+      };
+    }
+  }
+
+  const calcom = await rescheduleCalcomBooking({
+    uid: existing.calcomUid,
+    date,
+    time,
+    reason: typeof input.reason === 'string' ? input.reason.slice(0, 300) : undefined,
+  });
+
+  const ok = calcom.delivered === true;
+  if (ok) {
+    const idx = bookings.findIndex((row) => row.reference === existing.reference);
+    if (idx >= 0) {
+      bookings[idx] = {
+        ...bookings[idx],
+        date,
+        time,
+        status: 'confirmed',
+        calcomUid: calcom.uid || bookings[idx].calcomUid,
+        calcomId: calcom.id ?? bookings[idx].calcomId,
+        rescheduledAt: new Date().toISOString(),
+        previousDate: existing.date,
+        previousTime: existing.time,
+      };
+      await writeBookings(bookings);
+    }
+    console.log(`[booking] rescheduled ${existing.reference} -> ${date} ${time}`);
+  }
+
+  return {
+    ok,
+    reference: existing.reference,
+    date,
+    time,
+    calcom,
+    error: ok
+      ? undefined
+      : calcom.error || 'Could not reschedule this appointment on the calendar.',
+  };
+}
+
+/**
+ * Cancel an existing appointment on Cal.com and mark local row cancelled.
+ * Requires verified name + phone; reference is optional helper only.
+ */
+export async function cancelBooking(input = {}) {
+  const identity = requireIdentity(input);
+  const bookings = await readBookings();
+  const existing = findVerifiedBooking(bookings, identity);
+
+  if (!existing.calcomUid) {
+    throw new BookingError(
+      'That booking is not linked to the calendar, so it cannot be cancelled automatically.',
+      409,
+    );
+  }
+
+  const calcom = await cancelCalcomBooking({
+    uid: existing.calcomUid,
+    reason: typeof input.reason === 'string' ? input.reason.slice(0, 300) : undefined,
+  });
+
+  const ok = calcom.delivered === true;
+  if (ok) {
+    const idx = bookings.findIndex((row) => row.reference === existing.reference);
+    if (idx >= 0) {
+      bookings[idx] = {
+        ...bookings[idx],
+        status: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        cancelledByName: identity.customerName,
+        cancelledByPhone: identity.phone,
+      };
+      await writeBookings(bookings);
+    }
+    console.log(`[booking] cancelled ${existing.reference}`);
+  }
+
+  return {
+    ok,
+    reference: existing.reference,
+    calcom,
+    error: ok
+      ? undefined
+      : calcom.error || 'Could not cancel this appointment on the calendar.',
+  };
+}
+
 export async function listBookings() {
   const bookings = await readBookings();
   return [...bookings].reverse();

@@ -21,7 +21,13 @@
 
 const SESSION_ENDPOINT = '/api/session';
 const BOOKINGS_ENDPOINT = '/api/bookings';
+const AVAILABILITY_ENDPOINT = '/api/availability';
+const RESCHEDULE_ENDPOINT = '/api/bookings/reschedule';
+const CANCEL_ENDPOINT = '/api/bookings/cancel';
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
+
+// Nexofy T-03: greeting must start 1.5–2s after the call connects, not instantly.
+const GREETING_DELAY_MS = 1750;
 
 /** Every state the UI can be asked to render. */
 export const CallState = Object.freeze({
@@ -117,6 +123,7 @@ export function createRealtimeCall({
   let micStream = null;
   let state = CallState.IDLE;
   let greeted = false;
+  let greetingTimer = null;
 
   function setState(next) {
     if (state === next) return;
@@ -142,6 +149,11 @@ export function createRealtimeCall({
    */
   function cleanup() {
     greeted = false;
+
+    if (greetingTimer) {
+      clearTimeout(greetingTimer);
+      greetingTimer = null;
+    }
 
     if (dataChannel) {
       try {
@@ -265,7 +277,28 @@ export function createRealtimeCall({
     try {
       const args = JSON.parse(item.arguments || '{}');
 
-      if (name === 'save_booking') {
+      if (name === 'check_availability') {
+        const response = await fetch(AVAILABILITY_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result = body.ok
+          ? {
+              success: true,
+              timezone: body.timezone,
+              startDate: body.startDate,
+              endDate: body.endDate,
+              totalSlots: body.totalSlots,
+              days: body.days,
+              unavailableDays: body.unavailableDays || [],
+            }
+          : {
+              success: false,
+              error: body.error || `Availability service returned HTTP ${response.status}`,
+            };
+      } else if (name === 'save_booking') {
         const response = await fetch(BOOKINGS_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -275,14 +308,70 @@ export function createRealtimeCall({
         const body = await response.json().catch(() => ({}));
 
         if (response.ok && body.ok) {
-          result = { success: true, reference: body.reference };
+          result = {
+            success: true,
+            reference: body.reference,
+            confirmationEmail: body.confirmationEmail || args.email || null,
+            message: body.confirmationEmail || args.email
+              ? 'Booking confirmed on the calendar. A confirmation email is being sent.'
+              : 'Booking confirmed on the calendar.',
+          };
           onBooking({ ...args, reference: body.reference });
         } else {
           result = {
             success: false,
-            error: body.error || `Booking service returned HTTP ${response.status}`,
+            reference: body.reference,
+            reason: body.reason,
+            nearbyTimes: body.nearbyTimes,
+            error:
+              body.error ||
+              body.calcom?.error ||
+              `Booking service returned HTTP ${response.status}`,
           };
         }
+      } else if (name === 'reschedule_booking') {
+        const response = await fetch(RESCHEDULE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result =
+          response.ok && body.ok
+            ? {
+                success: true,
+                reference: body.reference,
+                date: body.date,
+                time: body.time,
+              }
+            : {
+                success: false,
+                reference: body.reference,
+                reason: body.reason,
+                nearbyTimes: body.nearbyTimes,
+                error:
+                  body.error ||
+                  body.calcom?.error ||
+                  `Reschedule returned HTTP ${response.status}`,
+              };
+      } else if (name === 'cancel_booking') {
+        const response = await fetch(CANCEL_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        });
+        const body = await response.json().catch(() => ({}));
+        result =
+          response.ok && body.ok
+            ? { success: true, reference: body.reference }
+            : {
+                success: false,
+                reference: body.reference,
+                error:
+                  body.error ||
+                  body.calcom?.error ||
+                  `Cancel returned HTTP ${response.status}`,
+              };
       } else {
         result = { success: false, error: `Unknown tool: ${name}` };
       }
@@ -310,17 +399,22 @@ export function createRealtimeCall({
   }
 
   /**
-   * Make the receptionist speak first.
+   * Make the receptionist speak first — after a short pause.
    *
    * A Realtime session stays silent until something prompts it, so the greeting
-   * written into the server-side instructions would never be heard on its own.
-   * Sending response.create the moment the channel opens is what turns this
-   * from "connected silence" into a receptionist answering the phone.
+   * in the server-side instructions would never be heard on its own. We wait
+   * ~1.75s after the data channel opens so the caller is ready (T-03), then
+   * send response.create.
    */
   function sendGreetingTrigger() {
-    if (greeted || dataChannel?.readyState !== 'open') return;
-    greeted = true;
-    dataChannel.send(JSON.stringify({ type: 'response.create' }));
+    if (greeted || greetingTimer || dataChannel?.readyState !== 'open') return;
+
+    greetingTimer = setTimeout(() => {
+      greetingTimer = null;
+      if (greeted || dataChannel?.readyState !== 'open') return;
+      greeted = true;
+      dataChannel.send(JSON.stringify({ type: 'response.create' }));
+    }, GREETING_DELAY_MS);
   }
 
   async function start() {
@@ -341,14 +435,19 @@ export function createRealtimeCall({
     try {
       setState(CallState.REQUESTING_MIC);
 
-      // These three hints matter a great deal for a speakerphone-style call:
-      // without echo cancellation the model hears its own voice through the
-      // speakers and starts replying to itself.
+      // Browser-side cleanup before audio reaches the model (T-01).
+      // echoCancellation is critical on speakers: without it the model hears
+      // itself and replies to its own voice. noiseSuppression reduces traffic,
+      // TV and room chatter that would otherwise look like turn-taking.
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          // Prefer the voice-oriented processing pipeline where the browser
+          // exposes it (Chrome/Edge). Ignored harmlessly elsewhere.
+          channelCount: 1,
+          sampleRate: 48000,
         },
       });
     } catch (error) {

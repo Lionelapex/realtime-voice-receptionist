@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *   - load environment variables
- *   - serve the static frontend
+ *   - serve the built React frontend
  *   - expose the /api routes
  *   - translate errors into clean JSON responses
  *
@@ -20,24 +20,12 @@ import servicesRoutes from './routes/servicesRoutes.js';
 import bookingRoutes from './routes/bookingRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FRONTEND_DIR = path.resolve(__dirname, '..', 'frontend');
+const FRONTEND_DIST = path.resolve(__dirname, '..', 'frontend', 'dist');
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
 
 app.use(express.json());
-
-/**
- * Serve the frontend from this same Express server.
- *
- * This is not just convenience. `navigator.mediaDevices.getUserMedia` only
- * exists in a secure context, which means HTTPS *or* localhost. Opening
- * index.html straight from disk as a file:// URL leaves mediaDevices undefined
- * and the microphone request fails before it is ever shown to the user.
- * Serving from http://localhost keeps us in a secure context and, as a bonus,
- * puts the API on the same origin so there is no CORS to configure.
- */
-app.use(express.static(FRONTEND_DIR));
 
 app.use('/api', sessionRoutes);
 app.use('/api', servicesRoutes);
@@ -47,6 +35,27 @@ app.use('/api', bookingRoutes);
 // OpenAI request.
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', hasApiKey: Boolean(process.env.OPENAI_API_KEY) });
+});
+
+/**
+ * Serve the Vite-built React app from this same Express server.
+ *
+ * This is not just convenience. `navigator.mediaDevices.getUserMedia` only
+ * exists in a secure context, which means HTTPS *or* localhost. Serving from
+ * http://localhost keeps us in a secure context and, as a bonus, puts the API
+ * on the same origin so there is no CORS to configure.
+ *
+ * Static assets are tried first. Anything left over that is a document
+ * navigation falls through to index.html so React Router can handle /call.
+ * API and /health are registered above, so they are never swallowed.
+ */
+app.use(express.static(FRONTEND_DIST));
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  res.sendFile(path.join(FRONTEND_DIST, 'index.html'), (error) => {
+    if (error) next(error);
+  });
 });
 
 /**

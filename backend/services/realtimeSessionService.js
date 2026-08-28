@@ -15,6 +15,10 @@ import {
   formatPrice,
   getLowestPrice,
 } from './servicesCatalog.js';
+import {
+  localeDisplayName,
+  resolveReceptionistLocale,
+} from './locale.js';
 
 const CLIENT_SECRETS_URL = 'https://api.openai.com/v1/realtime/client_secrets';
 
@@ -36,20 +40,48 @@ export class RealtimeSessionError extends Error {
 }
 
 /**
- * The one action the receptionist can take in the outside world.
+ * Tools the receptionist can use against the live Cal.com diary.
  *
- * Declaring this as a tool rather than parsing the transcript afterwards means
- * the model hands over clean, typed fields. It also gives us a precise moment
- * to act on -- the model only calls it once the customer has confirmed, so we
- * never save a half-finished booking that was still being corrected.
+ * Declaring these as tools rather than parsing the transcript afterwards means
+ * the model hands over clean, typed fields at precise moments (after the
+ * customer confirms), so we never write half-finished bookings.
  */
+const CHECK_AVAILABILITY_TOOL = {
+  type: 'function',
+  name: 'check_availability',
+  description:
+    'Look up open appointment times from the salon calendar (Cal.com). ' +
+    'ALWAYS speak a short status line to the caller first ' +
+    '(for example "Let me quickly check what is open for you"), then call this tool. ' +
+    'Pass a specific date (YYYY-MM-DD) for that day, or omit date to get the next several days.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: {
+        type: 'string',
+        description:
+          'Optional single day as YYYY-MM-DD in South Africa time. ' +
+          'Convert relative phrases like "Friday" first.',
+      },
+      endDate: {
+        type: 'string',
+        description:
+          'Optional end of range as YYYY-MM-DD. Only needed when checking several days.',
+      },
+    },
+    required: [],
+  },
+};
+
 const SAVE_BOOKING_TOOL = {
   type: 'function',
   name: 'save_booking',
   description:
-    'Save a confirmed salon appointment. Only call this after the customer has ' +
-    'explicitly confirmed that the details you read back to them are correct. ' +
-    'Never call it more than once for the same booking.',
+    'Save a confirmed salon appointment on the calendar. ' +
+    'ALWAYS speak a short status line first (for example "Let me book that for you now"), ' +
+    'then call this tool. Only after check_availability showed the slot is open and the ' +
+    'customer has explicitly confirmed all details. Email is optional — include it only ' +
+    'if they gave one and confirmed the spelling. Never call it more than once for the same booking.',
   parameters: {
     type: 'object',
     properties: {
@@ -61,17 +93,27 @@ const SAVE_BOOKING_TOOL = {
         type: 'string',
         description: "The customer's contact number, digits only where possible.",
       },
+      email: {
+        type: 'string',
+        description:
+          'Optional customer email if they volunteered one and confirmed the spelling. ' +
+          'Omit if they did not give an email.',
+      },
       service: {
         type: 'string',
         description: 'The service being booked, matching a name from the price list.',
       },
       date: {
         type: 'string',
-        description: 'The requested date, exactly as the customer expressed it.',
+        description:
+          'Appointment date as YYYY-MM-DD in South Africa local time ' +
+          '(for example 2026-08-20). Convert relative phrases like "Friday" first.',
       },
       time: {
         type: 'string',
-        description: 'The requested time, exactly as the customer expressed it.',
+        description:
+          'Appointment time as HH:mm 24-hour South Africa local time ' +
+          '(for example 14:30). Must be one of the open times from check_availability.',
       },
       quotedPrice: {
         type: 'string',
@@ -86,6 +128,79 @@ const SAVE_BOOKING_TOOL = {
   },
 };
 
+const RESCHEDULE_BOOKING_TOOL = {
+  type: 'function',
+  name: 'reschedule_booking',
+  description:
+    'Move an existing appointment to a new open calendar slot. ' +
+    'ALWAYS speak a short status line first (for example "Let me move that appointment for you"), ' +
+    'then call this tool. Before calling, verify identity: read back their name and phone ' +
+    'and get a yes. Reference is helpful but optional. Prefer check_availability first.',
+  parameters: {
+    type: 'object',
+    properties: {
+      customerName: {
+        type: 'string',
+        description: 'Full name on the booking, after the caller confirmed it.',
+      },
+      phone: {
+        type: 'string',
+        description: 'Phone number on the booking, after the caller confirmed it.',
+      },
+      reference: {
+        type: 'string',
+        description: 'Optional booking reference if known, for example BHS-4TRJY.',
+      },
+      date: {
+        type: 'string',
+        description: 'New date as YYYY-MM-DD (South Africa).',
+      },
+      time: {
+        type: 'string',
+        description: 'New time as HH:mm 24-hour (South Africa), from open slots.',
+      },
+      reason: {
+        type: 'string',
+        description: 'Optional short reason for the change.',
+      },
+    },
+    required: ['customerName', 'phone', 'date', 'time'],
+  },
+};
+
+const CANCEL_BOOKING_TOOL = {
+  type: 'function',
+  name: 'cancel_booking',
+  description:
+    'Cancel an existing salon appointment on the calendar. ' +
+    'ALWAYS speak a short status line first (for example "Let me cancel that for you now"), ' +
+    'then call this tool. ONLY after identity verification: confirm their full name AND ' +
+    'phone number by reading them back and getting a clear yes, AND confirm they want to cancel. ' +
+    'Reference is optional and helpful to start with, but never cancel on reference alone.',
+  parameters: {
+    type: 'object',
+    properties: {
+      customerName: {
+        type: 'string',
+        description: 'Full name on the booking, after the caller confirmed it.',
+      },
+      phone: {
+        type: 'string',
+        description: 'Phone number on the booking, after the caller confirmed it.',
+      },
+      reference: {
+        type: 'string',
+        description: 'Optional booking reference if known, for example BHS-4TRJY.',
+      },
+      reason: {
+        type: 'string',
+        description: 'Optional short cancellation reason.',
+      },
+    },
+    required: ['customerName', 'phone'],
+  },
+};
+
 /**
  * Build the session configuration that OpenAI will attach to the token.
  *
@@ -94,6 +209,7 @@ const SAVE_BOOKING_TOOL = {
  * Older beta examples put these at the top level; that shape is now rejected.
  */
 function buildSessionConfig() {
+  const locale = resolveReceptionistLocale();
   return {
     type: 'realtime',
     model: process.env.OPENAI_REALTIME_MODEL || DEFAULT_MODEL,
@@ -102,8 +218,14 @@ function buildSessionConfig() {
     instructions: buildReceptionistInstructions({
       menuText: formatCatalogForPrompt(),
       lowestPrice: formatPrice(getLowestPrice()),
+      locale,
     }),
-    tools: [SAVE_BOOKING_TOOL],
+    tools: [
+      CHECK_AVAILABILITY_TOOL,
+      SAVE_BOOKING_TOOL,
+      RESCHEDULE_BOOKING_TOOL,
+      CANCEL_BOOKING_TOOL,
+    ],
     tool_choice: 'auto',
     audio: {
       input: {
@@ -113,11 +235,13 @@ function buildSessionConfig() {
         // recalling a phone number, and a plain silence timer interrupts them.
         turn_detection: {
           type: 'semantic_vad',
-          eagerness: 'auto',
-          // Let the model reply on its own once the customer stops talking, and
-          // let the customer cut the model off mid-sentence. Together these are
-          // what make the exchange feel like a real phone call.
+          // "low" waits for a more complete utterance before seizing the turn.
+          // That helps slow speakers who pause mid-sentence (T-02) and reduces
+          // false replies to brief background noise bursts (T-01). Trade-off:
+          // replies feel a touch less snappy after short answers like "yes".
+          eagerness: 'low',
           create_response: true,
+          // Callers can still cut the agent off mid-sentence when they mean to.
           interrupt_response: true,
         },
       },
@@ -189,5 +313,7 @@ export async function createEphemeralSession() {
     value: data.value,
     expiresAt: data.expires_at ?? null,
     model: sessionConfig.model,
+    locale: resolveReceptionistLocale(),
+    localeName: localeDisplayName(resolveReceptionistLocale()),
   };
 }

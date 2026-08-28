@@ -44,8 +44,8 @@ html {
 /* -------------------------------------------------------------- header ---- */
 
 /*
- * Transparent over the dark hero, solid once scrolled. site.js only flips the
- * data attribute; the appearance of each state is defined here.
+ * Transparent over the dark hero, solid once scrolled. The React header only
+ * flips the data attribute; the appearance of each state is defined here.
  */
 .site-header {
   color: var(--color-cream, #faf6ef);
@@ -384,7 +384,7 @@ html {
 }
 
 /* The audio sink is functional, not visual. */
-#ai-audio {
+.ai-audio {
   display: none;
 }
 
